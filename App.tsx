@@ -19,16 +19,15 @@ import {
 import { GameState, CropType, BuildingType, SpecialBuildingType, SeasonalBuildingType, StorageBuildingType, TransportBuildingType, ManagerStrategy } from './types';
 import { StatsHeader } from './components/StatsHeader';
 import { Sidebar } from './components/Sidebar';
-import { FarmPlot } from './components/FarmPlot';
 import { BuildingPlot } from './components/BuildingPlot';
 import { ChristmasTree } from './components/ChristmasTree';
 import { WorldAnimations } from './components/WorldAnimations';
-import { FarmRoad } from './components/FarmRoad';
 import { TycoonWalkway } from './components/TycoonWalkway';
 import { AreaHeader } from './components/AreaHeader';
 import { Toaster, toast } from 'react-hot-toast';
-import { Lock, Bug, Crown, Snowflake, Warehouse } from 'lucide-react';
+import { Lock, Bug, Crown, Snowflake, Warehouse, Gamepad2 } from 'lucide-react';
 import { processTick, calculateLevelUp, getXpForLevel } from './gameEngine';
+import { PhaserGame, PhaserGameRef } from './game';
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(() => {
@@ -100,6 +99,10 @@ const App: React.FC = () => {
   const [currentFieldArea, setCurrentFieldArea] = useState(1);
   const [currentRanchArea, setCurrentRanchArea] = useState(1);
   const [currentStorageArea, setCurrentStorageArea] = useState(1);
+
+  // Walkable world mode (Phaser) vs Classic mode
+  const [isWalkableMode, setIsWalkableMode] = useState(true);
+  const phaserGameRef = useRef<PhaserGameRef>(null);
 
   const stateRef = useRef(gameState);
   useEffect(() => { stateRef.current = gameState; }, [gameState]);
@@ -546,12 +549,6 @@ const App: React.FC = () => {
   const managerCount = gameState.plots.filter(p => p.manager).length;
   const nextManagerCost = getManagerCost(managerCount);
 
-  // Calculate plots for current area
-  const fieldStartIndex = (currentFieldArea - 1) * PLOTS_PER_FIELD_AREA;
-  const currentFieldPlots = gameState.plots.slice(fieldStartIndex, fieldStartIndex + PLOTS_PER_FIELD_AREA);
-  const plotsTop = currentFieldPlots.slice(0, 10);
-  const plotsBottom = currentFieldPlots.slice(10);
-
   // Calculate plots for current ranch area
   const ranchStartIndex = (currentRanchArea - 1) * PLOTS_PER_RANCH_AREA;
   const currentRanchPlots = gameState.secondaryPlots.slice(ranchStartIndex, ranchStartIndex + PLOTS_PER_RANCH_AREA);
@@ -578,76 +575,99 @@ const App: React.FC = () => {
 
           <div className="max-w-5xl mx-auto space-y-12 relative z-10">
             
+            {/* Mode Toggle Button */}
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-green-700 flex items-center gap-2">
+                <span>🚜</span> Farming Fields
+              </h2>
+              <button
+                onClick={() => setIsWalkableMode(!isWalkableMode)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+                  isWalkableMode
+                    ? 'bg-green-500 text-white hover:bg-green-600'
+                    : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                }`}
+              >
+                <Gamepad2 size={18} />
+                {isWalkableMode ? 'Walkable World' : 'Classic View'}
+              </button>
+            </div>
+
             <div className="flex flex-col md:flex-row gap-8 items-start">
-               {/* FARM PLOTS */}
+               {/* FARM PLOTS - Either Phaser World or Classic Grid */}
                <div className="flex-1">
-                  <div className="bg-green-100 rounded-t-2xl overflow-hidden mb-4">
-                    <AreaHeader
-                      title="Farming Fields"
-                      emoji="🚜"
-                      currentArea={currentFieldArea}
-                      totalAreas={gameState.fieldAreaCount}
-                      onPrevArea={() => setCurrentFieldArea(prev => Math.max(1, prev - 1))}
-                      onNextArea={() => setCurrentFieldArea(prev => Math.min(gameState.fieldAreaCount, prev + 1))}
-                      onBuyNewArea={handleBuyFieldArea}
-                      newAreaCost={nextFieldAreaCost}
-                      canAffordNewArea={gameState.money >= nextFieldAreaCost}
-                      currentLevel={gameState.level}
-                      bgColor="bg-green-100"
-                      textColor="text-green-700"
-                    />
-                  </div>
-
-                  {/* Top Half of Plots */}
-                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3 sm:gap-4">
-                     {plotsTop.map((plot, index) => (
-                       <FarmPlot 
-                         key={plot.id}
-                         plot={plot}
-                         cropConfig={plot.crop ? CROPS[plot.crop.type] : undefined}
-                         onInteract={handleInteract}
-                         onUnlock={handleUnlockPlot}
-                         onHireManager={handleHireManager}
-                         unlockCost={getUnlockCost(index)}
-                         managerCost={nextManagerCost}
-                         canAffordUnlock={gameState.money >= getUnlockCost(index)}
-                         canAffordManager={gameState.money >= nextManagerCost}
-                         isSelectedSeedAffordable={gameState.money >= selectedSeedCost}
-                       />
-                     ))}
-                  </div>
-
-                  {/* ROAD */}
-                  <FarmRoad />
-
-                  {/* Bottom Half of Plots */}
-                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3 sm:gap-4">
-                     {plotsBottom.map((plot, index) => {
-                       const realIndex = index + 10;
-                       return (
-                        <FarmPlot 
-                          key={plot.id}
-                          plot={plot}
-                          cropConfig={plot.crop ? CROPS[plot.crop.type] : undefined}
-                          onInteract={handleInteract}
-                          onUnlock={handleUnlockPlot}
-                          onHireManager={handleHireManager}
-                          unlockCost={getUnlockCost(realIndex)}
-                          managerCost={nextManagerCost}
-                          canAffordUnlock={gameState.money >= getUnlockCost(realIndex)}
-                          canAffordManager={gameState.money >= nextManagerCost}
-                          isSelectedSeedAffordable={gameState.money >= selectedSeedCost}
+                  {isWalkableMode ? (
+                    <>
+                      {/* Walkable World Mode */}
+                      <div className="bg-green-100 rounded-t-2xl overflow-hidden mb-4">
+                        <AreaHeader
+                          title="Farming Fields"
+                          emoji="🚜"
+                          currentArea={currentFieldArea}
+                          totalAreas={gameState.fieldAreaCount}
+                          onPrevArea={() => setCurrentFieldArea(prev => Math.max(1, prev - 1))}
+                          onNextArea={() => setCurrentFieldArea(prev => Math.min(gameState.fieldAreaCount, prev + 1))}
+                          onBuyNewArea={handleBuyFieldArea}
+                          newAreaCost={nextFieldAreaCost}
+                          canAffordNewArea={gameState.money >= nextFieldAreaCost}
+                          currentLevel={gameState.level}
+                          bgColor="bg-green-100"
+                          textColor="text-green-700"
                         />
-                       );
-                     })}
-                  </div>
+                      </div>
+
+                      {/* Phaser Game Canvas */}
+                      <div className="relative rounded-2xl overflow-hidden shadow-lg border-4 border-green-200" style={{ height: '500px' }}>
+                        <PhaserGame
+                          ref={phaserGameRef}
+                          gameState={gameState}
+                          onInteract={handleInteract}
+                          onUnlockPlot={handleUnlockPlot}
+                          currentFieldArea={currentFieldArea}
+                        />
+
+                        {/* Controls Overlay */}
+                        <div className="absolute bottom-4 left-4 bg-black/70 text-white px-4 py-2 rounded-lg text-sm">
+                          <div className="flex items-center gap-4">
+                            <span><kbd className="bg-slate-600 px-2 py-1 rounded">WASD</kbd> Move</span>
+                            <span><kbd className="bg-slate-600 px-2 py-1 rounded">E</kbd> Interact</span>
+                          </div>
+                        </div>
+
+                        {/* Selected Seed Display */}
+                        <div className="absolute top-4 right-4 bg-white/90 px-4 py-2 rounded-lg shadow-md">
+                          <div className="flex items-center gap-2">
+                            <span className="text-2xl">{CROPS[gameState.selectedSeed].emoji}</span>
+                            <span className="font-medium text-slate-700">{CROPS[gameState.selectedSeed].name}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* Classic Grid Mode - Simplified placeholder */}
+                      <div className="bg-amber-50 border-4 border-dashed border-amber-200 rounded-3xl p-8 flex flex-col items-center justify-center text-center gap-4">
+                        <div className="text-6xl">🎮</div>
+                        <div>
+                          <h3 className="text-lg font-bold text-amber-800">Classic Mode Coming Soon</h3>
+                          <p className="text-amber-600 max-w-md">Switch to Walkable World mode to play!</p>
+                        </div>
+                        <button
+                          onClick={() => setIsWalkableMode(true)}
+                          className="px-6 py-3 bg-green-500 text-white rounded-xl font-bold shadow-lg hover:bg-green-600 transition-all"
+                        >
+                          Enter Walkable World
+                        </button>
+                      </div>
+                    </>
+                  )}
                </div>
 
                {/* CHRISTMAS TREE (Visual Landmark) */}
                <div className="bg-white/50 p-6 rounded-[2rem] border-2 border-slate-100 flex flex-col items-center shadow-inner self-center md:self-start backdrop-blur-sm">
-                  <ChristmasTree 
-                     ornaments={gameState.treeOrnaments} 
-                     unlocked={gameState.isSeasonalAreaUnlocked} 
+                  <ChristmasTree
+                     ornaments={gameState.treeOrnaments}
+                     unlocked={gameState.isSeasonalAreaUnlocked}
                      onUnlockSeasonal={handleUnlockSeasonalArea}
                      canAffordUnlock={gameState.money >= SEASONAL_AREA_COST}
                      cost={SEASONAL_AREA_COST}
