@@ -1,0 +1,11 @@
+services:
+  tiny-farmer:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      # Pass your API key here or via a local .env file
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    volumes:
+      - .:/app
+      - /app/node_modules
